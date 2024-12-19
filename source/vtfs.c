@@ -236,17 +236,14 @@ int vtfs_iterate(struct file *file, struct dir_context *ctx) {
     struct list_head *pos;
     struct inode *dir_inode = file->f_path.dentry->d_inode;
     unsigned char type;
-    loff_t counter = 2;  // Start after . and ..
+    loff_t counter = 2;
 
-    // Handle . and .. entries
     if (!dir_emit_dots(file, ctx))
         return 0;
 
-    // Iterate through entries
     list_for_each(pos, &vtfs_sb.dentries) {
         dentry = list_entry(pos, struct vtfs_dentry, list);
 
-        // Skip entries until we reach ctx->pos
         if (counter++ < ctx->pos)
             continue;
 
@@ -350,7 +347,6 @@ struct file_operations vtfs_dir_ops = {
     .iterate_shared = vtfs_iterate,
     .read = vtfs_read,
     .write = vtfs_write,
-    .llseek = generic_file_llseek,
 };
 
 struct inode* vtfs_get_inode(
