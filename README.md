@@ -13,7 +13,7 @@ ls /mnt/vt
 
 touch /mnt/vt/1
 
-unmount /mnt/vt
+umount /mnt/vt
 
 rmmod vtfs
 
