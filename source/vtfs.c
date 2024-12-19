@@ -11,6 +11,8 @@
 #define MODULE_NAME "vtfs"
 #define VTFS_IOCTL_ADD_TAG _IOW('V', 1, char*)
 #define VTFS_IOCTL_GET_TAGS _IOR('V', 2, char*)
+#define VTFS_IOCTL_REMOVE_TAG _IOW('V', 3, char*)
+
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("secs-dev");
@@ -442,6 +444,32 @@ long vtfs_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
             }
             return offset; // Возвращает общее количество записанных байт
         }
+
+        case VTFS_IOCTL_REMOVE_TAG: {
+          tag_name = kmalloc(strlen((char*)arg) + 1, GFP_KERNEL);
+            if (!tag_name) {
+                return -ENOMEM;
+            }
+            ret = copy_from_user(tag_name, (char*)arg, strlen((char*)arg) + 1);
+            if (ret) {
+                kfree(tag_name);
+                return -EFAULT;
+            }
+
+             list_for_each_safe(pos, q, &inode->tags) {
+                tag = list_entry(pos, struct vtfs_tag, list);
+                if (strcmp(tag->name, tag_name) == 0) {
+                  list_del(pos);
+                  kfree(tag->name);
+                  kfree(tag);
+                    kfree(tag_name);
+                    return 0; // Тег удален
+                }
+            }
+             kfree(tag_name);
+              return -ENOENT; // Тег не найден
+        }
+
         
         default:
             return -ENOTTY;
