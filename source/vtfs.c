@@ -4,12 +4,18 @@
 #include <linux/fs.h>
 #include <linux/slab.h>
 #include <linux/uaccess.h>
+#include <linux/list.h>
+#include <linux/ioctl.h>
+#include <linux/syscalls.h> 
 
 #define MODULE_NAME "vtfs"
+#define VTFS_IOCTL_ADD_TAG _IOW('V', 1, char*)
+#define VTFS_IOCTL_GET_TAGS _IOR('V', 2, char*)
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("secs-dev");
 MODULE_DESCRIPTION("A simple FS kernel module");
+
 
 #define LOG(fmt, ...) pr_info("[" MODULE_NAME "]: " fmt, ##__VA_ARGS__)
 
@@ -17,10 +23,16 @@ unsigned long next_ino = 1;
 
 struct inode* vtfs_get_inode(struct super_block*, const struct inode*, umode_t, int);
 
+struct vtfs_tag {
+    char *name;
+    struct list_head list; 
+};
+
 struct vtfs_inode {
   struct inode *i_inode;
   size_t i_size;
   void *i_data;
+  struct list_head tags;
 };
 
 struct vtfs_dentry {
@@ -87,6 +99,7 @@ int vtfs_create(
     return -ENOMEM;
   }
 
+  INIT_LIST_HEAD(&new_inode->tags);
   new_dentry->d_dentry = child_dentry;
   new_dentry->d_name = child_dentry->d_name.name;
   new_dentry->d_parent_inode = parent_inode;
@@ -134,6 +147,8 @@ int vtfs_mkdir(
 ) {
     struct inode *inode;
     struct vtfs_dentry *new_dentry;
+
+    INIT_LIST_HEAD(&new_dentry->d_inode->tags);
 
     inode = vtfs_get_inode(vtfs_sb.sb, parent_inode, mode | S_IFDIR, next_ino++);
     if (!inode) {
@@ -312,6 +327,8 @@ ssize_t vtfs_write(
   struct list_head *pos;
   void *new_data;
   ssize_t new_size;
+  int ret;
+
 
   list_for_each(pos, &vtfs_sb.dentries) {
     found_dentry = list_entry(pos, struct vtfs_dentry, list);
@@ -331,11 +348,14 @@ ssize_t vtfs_write(
         found_inode->i_size = new_size;
       }
 
-      if (copy_from_user(found_inode->i_data + *offset, buffer, len)) {
+      ret = copy_from_user(found_inode->i_data + *offset, buffer, len);
+      if (ret) {
         return -EFAULT;
       }
 
+
       *offset += len;
+        file->f_inode->i_size = found_inode->i_size; 
       return len;
     }
   }
@@ -343,11 +363,99 @@ ssize_t vtfs_write(
   return -ENOENT;
 }
 
+
+long vtfs_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
+    struct vtfs_inode *inode;
+    struct vtfs_dentry *dentry;
+    struct vtfs_tag *tag, *temp_tag;
+    char *tag_name;
+    struct list_head *pos, *q;
+    int ret;
+
+    // Найти inode по file
+    inode = NULL;
+    list_for_each(pos, &vtfs_sb.dentries) {
+        dentry = list_entry(pos, struct vtfs_dentry, list);
+        if (dentry->d_inode->i_inode == file->f_inode) {
+            inode = dentry->d_inode;
+            break;
+        }
+    }
+
+    if (!inode) {
+        return -ENOENT;
+    }
+
+
+    switch(cmd) {
+        case VTFS_IOCTL_ADD_TAG:
+            tag_name = kmalloc(strlen((char*)arg) + 1, GFP_KERNEL);
+            if (!tag_name) {
+                return -ENOMEM;
+            }
+            ret = copy_from_user(tag_name, (char*)arg, strlen((char*)arg) + 1);
+            if (ret != 0) {
+                kfree(tag_name);
+                return -EFAULT;
+            }
+
+
+            // Проверка на дубликат тега
+            list_for_each(pos, &inode->tags) {
+                tag = list_entry(pos, struct vtfs_tag, list);
+                if (strcmp(tag->name, tag_name) == 0) {
+                    kfree(tag_name);
+                    return -EEXIST; // Тег уже существует
+                }
+            }
+
+
+
+            tag = kmalloc(sizeof(*tag), GFP_KERNEL);
+            if (!tag) {
+                kfree(tag_name);
+                return -ENOMEM;
+            }
+
+            tag->name = tag_name;
+            list_add_tail(&tag->list, &inode->tags);
+
+            return 0;
+
+        case VTFS_IOCTL_GET_TAGS: {
+            char *buf = (char *)arg;
+            size_t buf_size = PAGE_SIZE;
+            size_t offset = 0;
+
+            list_for_each(pos, &inode->tags) {
+                tag = list_entry(pos, struct vtfs_tag, list);
+                size_t len = strlen(tag->name);
+
+                if (offset + len + 1 > buf_size) {
+                    return -ENOBUFS; // Буфер слишком мал
+                }
+
+                ret = copy_to_user(buf + offset, tag->name, len + 1);
+                 if (ret) return -EFAULT;
+
+                offset += len + 1;
+            }
+            return offset; // Возвращает общее количество записанных байт
+        }
+        
+        default:
+            return -ENOTTY;
+    }
+}
+
 struct file_operations vtfs_dir_ops = {
     .iterate_shared = vtfs_iterate,
     .read = vtfs_read,
     .write = vtfs_write,
+    .unlocked_ioctl = vtfs_ioctl,
 };
+
+
 
 struct inode* vtfs_get_inode(
   struct super_block* sb, 
