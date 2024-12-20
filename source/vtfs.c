@@ -150,8 +150,6 @@ int vtfs_mkdir(
     struct inode *inode;
     struct vtfs_dentry *new_dentry;
 
-    INIT_LIST_HEAD(&new_dentry->d_inode->tags);
-
     inode = vtfs_get_inode(vtfs_sb.sb, parent_inode, mode | S_IFDIR, next_ino++);
     if (!inode) {
         return -ENOMEM;
@@ -170,6 +168,7 @@ int vtfs_mkdir(
         return -ENOMEM;
     }
 
+    INIT_LIST_HEAD(&new_dentry->d_inode->tags);
     new_dentry->d_dentry = child_dentry;
     new_dentry->d_name = child_dentry->d_name.name;
     new_dentry->d_parent_inode = parent_inode;

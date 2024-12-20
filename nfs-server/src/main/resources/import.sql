@@ -1,1 +1,0 @@
-insert into dentries (inode, mode, parent_inode, name, data) values (100, 4, null, null, null);
