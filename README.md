@@ -21,4 +21,14 @@ rmmod vtfs
 dmesg
 
 
+./vtfs_tag -f /mnt/vt/ tag1
+
+./vtfs_tag /mnt/vt/file tag1
+
+./vtfs_tag /mnt/vt/file -r tag1
+
+./vtfs_tag /mnt/vt/file
+
+
+
 
